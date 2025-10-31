@@ -7,7 +7,6 @@ import { createChatSession, generateVideoFromImage, generateImageFromImage } fro
 import Header from './Header';
 import MessageList from './MessageList';
 import InputBar from './InputBar';
-import ApiKeyPrompt from './ApiKeyPrompt';
 
 const ChatWindow: React.FC = () => {
     const [messages, setMessages] = useState<Message[]>([
@@ -19,7 +18,6 @@ const ChatWindow: React.FC = () => {
     ]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isKeyReady, setIsKeyReady] = useState(false);
     const [contextImage, setContextImage] = useState<{ src: string, mimeType: string } | null>(null);
 
     const chatSessionRef = useRef<Chat | null>(null);
@@ -27,29 +25,19 @@ const ChatWindow: React.FC = () => {
     const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        const checkApiKey = async () => {
-            const hasKey = await window.aistudio.hasSelectedApiKey();
-            setIsKeyReady(hasKey);
-        };
-        checkApiKey();
-    }, []);
-
-    useEffect(() => {
-        if (isKeyReady) {
+        try {
             chatSessionRef.current = createChatSession();
+        } catch (e) {
+            console.error(e);
+            setError("Could not initialize chat session. The API key might be missing.");
         }
-    }, [isKeyReady]);
+    }, []);
 
     useEffect(() => {
         if (messageListRef.current) {
             messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
         }
     }, [messages]);
-
-    const handleSelectKey = async () => {
-        await window.aistudio.openSelectKey();
-        setIsKeyReady(true);
-    };
 
     const handleSetContextImage = (image: { src: string, mimeType: string }) => {
         setContextImage(image);
@@ -96,10 +84,12 @@ const ChatWindow: React.FC = () => {
                         : msg
                     ));
                 } catch (err: any) {
-                    if (err.message === 'API_KEY_INVALID') setIsKeyReady(false);
+                    const errorMessage = err.message === 'API_KEY_INVALID' 
+                        ? "Video generation failed: The API Key is invalid or missing. Please contact the site administrator."
+                        : `Video generation failed: ${err.message}`;
                     setMessages(prev => prev.map(msg => 
                         msg.id === modelPlaceholderMessage.id 
-                        ? { ...msg, text: `Video generation failed: ${err.message}`, isLoadingVideo: false }
+                        ? { ...msg, text: errorMessage, isLoadingVideo: false }
                         : msg
                     ));
                 }
@@ -120,10 +110,12 @@ const ChatWindow: React.FC = () => {
                         : msg
                     ));
                 } catch (err: any) {
-                    if (err.message === 'API_KEY_INVALID') setIsKeyReady(false);
+                     const errorMessage = err.message === 'API_KEY_INVALID' 
+                        ? "Image generation failed: The API Key is invalid or missing. Please contact the site administrator."
+                        : `Image generation failed: ${err.message}`;
                     setMessages(prev => prev.map(msg => 
                         msg.id === modelPlaceholderMessage.id 
-                        ? { ...msg, text: `Image generation failed: ${err.message}`, isLoadingImage: false }
+                        ? { ...msg, text: errorMessage, isLoadingImage: false }
                         : msg
                     ));
                 }
@@ -132,7 +124,7 @@ const ChatWindow: React.FC = () => {
         } else { // Standard text chat
             try {
                 if (!chatSessionRef.current) {
-                    throw new Error("Chat session not initialized.");
+                    throw new Error("Chat session not initialized. The API key might be missing from the environment configuration.");
                 }
                 const response = await chatSessionRef.current.sendMessage({ message: inputText });
                 
@@ -143,12 +135,16 @@ const ChatWindow: React.FC = () => {
                 };
                 setMessages(prev => [...prev, modelResponse]);
 
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Error sending message:", err);
+                 const errorMessageText = (err as Error).message.includes("API key") 
+                    ? "I'm sorry, there's a configuration issue with the API key. Please contact the site administrator."
+                    : "I'm sorry, but I'm having trouble connecting right now. Please try again in a moment.";
+
                 const errorMessage: Message = {
                     id: uuidv4(),
                     role: 'model',
-                    text: "I'm sorry, but I'm having trouble connecting right now. Please try again in a moment.",
+                    text: errorMessageText,
                 };
                 setMessages(prev => [...prev, errorMessage]);
                 setError("Failed to get a response from the AI.");
@@ -157,10 +153,6 @@ const ChatWindow: React.FC = () => {
             }
         }
     }, [isLoading]);
-
-    if (!isKeyReady) {
-        return <ApiKeyPrompt onSelectKey={handleSelectKey} />;
-    }
 
     return (
         <div className="flex flex-col h-full w-full bg-white rounded-none sm:rounded-xl overflow-hidden">
