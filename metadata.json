@@ -1,0 +1,5 @@
+{
+  "name": "ArchiConstruct AI Chatbot",
+  "description": "A chatbot for an interior design and construction business in Bangalore, powered by Gemini. It answers customer queries and helps generate AI-powered videos from user images.",
+  "requestFramePermissions": []
+}
