@@ -1,118 +1,75 @@
-import { GoogleGenAI, Chat, Modality } from "@google/genai";
-import { SYSTEM_PROMPT } from '../constants';
-import { AspectRatio } from "../types";
+// FIX: Import `GenerateVideosResult` as `Operation` is a generic type.
+import { Operation, GenerateVideosResult } from '@google/genai';
+import { AspectRatio, Message } from '../types';
 
-const getGenAI = () => {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable not set");
+// This is a generic type for the response from our backend proxy
+interface ProxyResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+}
+
+// A helper function to handle fetch requests to our own backend proxy
+const fetchFromProxy = async (endpoint: string, body: object): Promise<ProxyResponse> => {
+    const response = await fetch(`/api/${endpoint}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Proxy request failed: ${response.statusText} - ${errorText}`);
     }
-    // Create a new instance for each call to ensure the latest API key is used.
-    return new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+    return response.json();
 };
 
-export function createChatSession(): Chat {
-    const ai = getGenAI();
-    const chat = ai.chats.create({
-        model: 'gemini-2.5-flash',
-        config: {
-            systemInstruction: SYSTEM_PROMPT,
-        },
+
+export const generateTextOrImageResponse = async (
+    messages: Message[],
+    generateImage: boolean
+): Promise<any> => { // The response will be the JSON from Gemini, passed through our proxy
+    const response = await fetchFromProxy('proxy', {
+        action: 'generateTextOrImage',
+        messages,
+        generateImage,
     });
-    return chat;
-}
 
-export async function generateImageFromImage(
-    prompt: string,
-    image: { src: string; mimeType: string }
-): Promise<{ src: string, mimeType: string }> {
-     const ai = getGenAI();
-     try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [
-                    {
-                        inlineData: {
-                            data: image.src,
-                            mimeType: image.mimeType,
-                        },
-                    },
-                    {
-                        text: prompt,
-                    },
-                ],
-            },
-            config: {
-                responseModalities: [Modality.IMAGE],
-            },
-        });
-
-        for (const part of response.candidates?.[0]?.content?.parts ?? []) {
-            if (part.inlineData) {
-                return {
-                    src: part.inlineData.data,
-                    mimeType: part.inlineData.mimeType,
-                };
-            }
-        }
-        throw new Error("Image generation failed: No image data found in response.");
-
-     } catch (error) {
-        console.error("Error generating image:", error);
-        if (error instanceof Error && error.message.includes("API key not valid")) {
-             throw new Error("API_KEY_INVALID");
-        }
-        throw new Error("Failed to generate image. The prompt may have been blocked. Please try again with a different prompt or image.");
-     }
-}
-
-
-export async function generateVideoFromImage(
-    prompt: string,
-    image: { src: string; mimeType: string },
-    aspectRatio: AspectRatio
-): Promise<string> {
-    const ai = getGenAI();
-
-    try {
-        let operation = await ai.models.generateVideos({
-            model: 'veo-3.1-fast-generate-preview',
-            prompt: prompt,
-            image: {
-                imageBytes: image.src,
-                mimeType: image.mimeType,
-            },
-            config: {
-                numberOfVideos: 1,
-                resolution: '720p', // Using 720p for faster generation
-                aspectRatio: aspectRatio,
-            },
-        });
-
-        // Poll for the result
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            operation = await ai.operations.getVideosOperation({ operation });
-        }
-
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) {
-            throw new Error("Video generation failed: No download link found.");
-        }
-
-        const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch video: ${response.statusText}`);
-        }
-        
-        const videoBlob = await response.blob();
-        return URL.createObjectURL(videoBlob);
-
-    } catch (error) {
-        console.error("Error generating video:", error);
-        if (error instanceof Error && error.message.includes("Requested entity was not found.")) {
-             throw new Error("API_KEY_INVALID");
-        }
-        throw new Error("Failed to generate video. The prompt may have been blocked. Please try again with a different prompt or image.");
+    if (!response.success) {
+        throw new Error(response.error || 'Failed to generate response from proxy.');
     }
-}
+    return response.data;
+};
+
+// FIX: Update `Operation` to `Operation<GenerateVideosResult>` as `Operation` is a generic type.
+export const generateVideo = async (
+    prompt: string,
+    image: { src: string; mimeType: string } | null,
+    aspectRatio: AspectRatio
+): Promise<Operation<GenerateVideosResult>> => {
+    const response = await fetchFromProxy('proxy', {
+        action: 'generateVideo',
+        prompt,
+        image,
+        aspectRatio,
+    });
+    if (!response.success) {
+        throw new Error(response.error || 'Failed to start video generation from proxy.');
+    }
+    return response.data as Operation<GenerateVideosResult>;
+};
+
+// FIX: Update `Operation` to `Operation<GenerateVideosResult>` as `Operation` is a generic type.
+export const checkVideoStatus = async (operation: Operation<GenerateVideosResult>): Promise<Operation<GenerateVideosResult>> => {
+     const response = await fetchFromProxy('proxy', {
+        action: 'checkVideoStatus',
+        operation,
+    });
+    if (!response.success) {
+        throw new Error(response.error || 'Failed to check video status from proxy.');
+    }
+    return response.data as Operation<GenerateVideosResult>;
+};
