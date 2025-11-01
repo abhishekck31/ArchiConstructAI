@@ -8,7 +8,19 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Helper to build the 'contents' array for the Gemini API for chat history
 const buildContents = (messages: Message[]): Content[] => {
-    return messages.map((msg) => {
+    // Gemini API requires chat history to start with a 'user' role.
+    // Find the index of the first user message to create a valid history.
+    const firstUserMessageIndex = messages.findIndex(msg => msg.role === 'user');
+    
+    // If no user message is found, we cannot start a conversation.
+    if (firstUserMessageIndex === -1) {
+        return [];
+    }
+
+    // Use messages from the first user message onwards.
+    const relevantMessages = messages.slice(firstUserMessageIndex);
+
+    return relevantMessages.map((msg) => {
         const parts: Part[] = [];
         if (msg.image) {
             parts.push({
@@ -77,7 +89,8 @@ export default async function handler(req: Request) {
                 const systemInstruction = generateImage ? undefined : SYSTEM_PROMPT;
 
                 if (generateImage) {
-                    // For image generation/editing, the model expects a single prompt (Content), not a chat history (Content[]).
+                    // For image generation/editing, we send a single-turn request.
+                    // It's safer to structure it as a Content array with one user message.
                     const lastMessage = messages[messages.length - 1];
                     const parts: Part[] = [];
                      // For editing, the model generally expects the image part before the text part.
@@ -92,8 +105,8 @@ export default async function handler(req: Request) {
                     if (lastMessage.text) {
                         parts.push({ text: lastMessage.text });
                     }
-                    // Pass a single Content object for single-turn image models.
-                    requestContents = { parts };
+                    // Wrap the single prompt in an array, which is a more common format for multimodal models.
+                    requestContents = [{ role: 'user', parts }];
                 } else {
                     // For a normal chat, we send the whole history.
                     requestContents = buildContents(messages);
