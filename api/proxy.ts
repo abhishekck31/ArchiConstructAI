@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Content, Part, Modality } from '@google/genai';
 import { SYSTEM_PROMPT } from '../constants';
 import { Message } from '../types';
@@ -89,11 +90,12 @@ export default async function handler(req: Request) {
                 const systemInstruction = generateImage ? undefined : SYSTEM_PROMPT;
 
                 if (generateImage) {
-                    // For image generation/editing, we send a single-turn request.
-                    // It's safer to structure it as a Content array with one user message.
+                    // The 'gemini-2.5-flash-image' model expects a single Content object, not an array.
+                    // It should not have a 'role'.
                     const lastMessage = messages[messages.length - 1];
                     const parts: Part[] = [];
-                     // For editing, the model generally expects the image part before the text part.
+                    
+                    // For editing, the model expects the image part before the text part.
                     if (lastMessage.image) {
                         parts.push({
                             inlineData: {
@@ -105,10 +107,10 @@ export default async function handler(req: Request) {
                     if (lastMessage.text) {
                         parts.push({ text: lastMessage.text });
                     }
-                    // Wrap the single prompt in an array, which is a more common format for multimodal models.
-                    requestContents = [{ role: 'user', parts }];
+                    // This is the correct format: a single object with a `parts` array.
+                    requestContents = { parts };
                 } else {
-                    // For a normal chat, we send the whole history.
+                    // For a normal chat, we send the whole history as an array.
                     requestContents = buildContents(messages);
                 }
                 
