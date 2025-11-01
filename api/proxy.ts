@@ -1,12 +1,12 @@
-import { GoogleGenAI, Content, Part, Modality, Operation } from '@google/genai';
+import { GoogleGenAI, Content, Part, Modality } from '@google/genai';
 import { SYSTEM_PROMPT } from '../constants';
-import { AspectRatio, Message } from '../types';
+import { Message } from '../types';
 
 // This function will be deployed as a serverless function.
 // It reads the API_KEY from the server's environment variables.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Helper to build the 'contents' array for the Gemini API
+// Helper to build the 'contents' array for the Gemini API for chat history
 const buildContents = (messages: Message[]): Content[] => {
     return messages.map((msg) => {
         const parts: Part[] = [];
@@ -71,14 +71,40 @@ export default async function handler(req: Request) {
         switch (action) {
             case 'generateTextOrImage':
                 const { messages, generateImage } = body;
-                const contents: Content[] = buildContents(messages);
-                const modelName = generateImage ? 'gemini-2.5-flash-image' : 'gemini-2.5-pro';
+                
+                let requestContents: Content | Content[];
+                const modelName = generateImage ? 'gemini-2.5-flash-image' : 'gemini-2.5-flash';
+                const systemInstruction = generateImage ? undefined : SYSTEM_PROMPT;
+
+                if (generateImage) {
+                    // For image generation/editing, the model expects a single prompt, not a chat history.
+                    // We only use the last message.
+                    const lastMessage = messages[messages.length - 1];
+                    const parts: Part[] = [];
+                     // For editing, the model generally expects the image part before the text part.
+                    if (lastMessage.image) {
+                        parts.push({
+                            inlineData: {
+                                data: lastMessage.image.src,
+                                mimeType: lastMessage.image.mimeType,
+                            },
+                        });
+                    }
+                    if (lastMessage.text) {
+                        parts.push({ text: lastMessage.text });
+                    }
+                    // Encapsulate the single prompt in an array, as a single-turn request.
+                    requestContents = [{ role: 'user', parts }];
+                } else {
+                    // For a normal chat, we send the whole history.
+                    requestContents = buildContents(messages);
+                }
                 
                 const genContentResponse = await ai.models.generateContent({
                     model: modelName,
-                    contents,
+                    contents: requestContents,
                     config: {
-                        systemInstruction: SYSTEM_PROMPT,
+                        ...(systemInstruction && { systemInstruction }),
                         ...(generateImage && { responseModalities: [Modality.IMAGE] }),
                     }
                 });
