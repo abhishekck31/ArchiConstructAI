@@ -77,8 +77,7 @@ export default async function handler(req: Request) {
                 const systemInstruction = generateImage ? undefined : SYSTEM_PROMPT;
 
                 if (generateImage) {
-                    // For image generation/editing, the model expects a single prompt, not a chat history.
-                    // We only use the last message.
+                    // For image generation/editing, the model expects a single prompt (Content), not a chat history (Content[]).
                     const lastMessage = messages[messages.length - 1];
                     const parts: Part[] = [];
                      // For editing, the model generally expects the image part before the text part.
@@ -93,8 +92,8 @@ export default async function handler(req: Request) {
                     if (lastMessage.text) {
                         parts.push({ text: lastMessage.text });
                     }
-                    // Encapsulate the single prompt in an array, as a single-turn request.
-                    requestContents = [{ role: 'user', parts }];
+                    // Pass a single Content object for single-turn image models.
+                    requestContents = { parts };
                 } else {
                     // For a normal chat, we send the whole history.
                     requestContents = buildContents(messages);
